@@ -1,6 +1,8 @@
 'use server';
 
+import { signIn } from '@/auth';
 import { sql } from '@vercel/postgres';
+import { AuthError } from 'next-auth';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
@@ -28,6 +30,25 @@ const FormSchema = z.object({
 
 const CreateInvoice = FormSchema.omit({ id: true, date: true });
 const UpdateInvoice = FormSchema.omit({ id: true, date: true });
+
+export async function authenticate(
+  prevState: string | undefined,
+  formData: FormData,
+) {
+  try {
+    await signIn('credentials', formData);
+  } catch (error) {
+    if (error instanceof AuthError) {
+      switch (error.type) {
+        case 'CredentialsSignin':
+          return 'Invalid credentials.';
+        default:
+          return 'Something went wrong.';
+      }
+    }
+    throw error;
+  }
+}
 
 export async function createInvoice(prevState: State, formData: FormData) {
   const validateFields = CreateInvoice.safeParse({
@@ -63,20 +84,20 @@ export async function createInvoice(prevState: State, formData: FormData) {
 }
 
 export async function updateInvoice(id: string, prevState: State, formData: FormData) {
-  const validateFormFields = UpdateInvoice.safeParse({
+  const validatedFields = UpdateInvoice.safeParse({
     customerId: formData.get('customerId'),
     amount: formData.get('amount'),
     status: formData.get('status'),
   });
 
-  if (!validateFormFields.success) {
+  if (!validatedFields.success) {
     return {
-      errors: validateFormFields.error.flatten().fieldErrors,
+      errors: validatedFields.error.flatten().fieldErrors,
       message: 'Missing Fields. Failed to Create Invoice.'
     }
   }
 
-  const { customerId, amount, status } = validateFormFields.data;
+  const { customerId, amount, status } = validatedFields.data;
   const amountInCents = amount * 100;
 
   try {
